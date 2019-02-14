@@ -9,43 +9,52 @@ contract Database
        uint RepBalance;
     }
 
-   //assign adress to each member and put a list of mebners together
-   //allows look up a specific instructor with their Ethereum address,
+   //assign adress to each member and put an array of member accounts
+   //allows look up a specific instructor with their Ethereum address
    mapping (address => Members) members;
    address[] public MemberAccts;
 
-   //Add new member 
+   //Adding a new member with an initial Reputation_Token balance 0
+   //Mapp the public key of the sender account (the account who registers) to its corresponding struct Members
+   //Add it to the last place in the overall MemberAccts array
     function setMember (string memory _FirstName, string memory _LastName) public {
        Members memory member = members[msg.sender];
        member.RepBalance = 0;
 
        member.FirstName = _FirstName;
        member.LastName =_LastName;
-       member.FirstName = _FirstName;
 
        MemberAccts.push(msg.sender) -1;
    }
 
-   // Get Members
+   // Get members which are registered
    function getMembers() view public returns (address[] memory) {
        return MemberAccts;
    }
 
-   //Get Reputation Token
+   //Get the balance of Reputation_Tokens for a specific address
    function getReputationTokenOfMember(address _ETHaddress) view public returns (uint256) {
        return members[_ETHaddress].RepBalance;
    }
 
-   //Count Total members on platform
+   //Count total members on platform
    function countMembers() view public returns (uint) {
        return MemberAccts.length;
    }
-
+   
+   
     function getAddress() view public returns (address) {
         return msg.sender;
     }
 
-   //structures
+   //Setting the variables for the request of images
+   //@param nameOfTag Tag of the picture that is requested
+   //@param aximumNumberOfImages Number of pictures needed
+   //@param remainingNumberOfImages how many pictures are left till completion
+   //@param perImagePrice Price which will be paid per accepted image
+   //@param idOfRequestedDatabase Every Requested Database gets an ID assigned to track it later on
+   //@param db Hash array of accepted images for given request
+   //@param completed is set to 1 if request is done
    struct RequestedDatabase {
        string nameOfTag;
        uint maximumNumberOfImages;
@@ -57,6 +66,17 @@ contract Database
        bool completed;
    }
 
+//The uploader proposes an image to the request which then needs to be verified
+//@param idOfImageProposal unique id of the uploaded image
+//@param hashOfImageProposal IPFS address of uploaded picture
+//@param tagIdOfProposal is same as idOfRequestedDatabase (above) if the proposed image is voted correct
+//@param uploaderAdress Address of uploaded image
+//@param votersForCorrect array of all voters who voted for the proposed image fitting the requested pictures
+//@param votersForWrong array of all voters who voted that the uploaded picture does not fit the request
+//@param countCorrect #of answers for correct
+//@param countFalse #of answers for false
+//@param numberOfReceiversLeft for future development
+//@param numberOfTotalReceivers for future develpment
    struct ImageProposal{
        uint idOfImageProposal;
        uint hashOfImageProposal;
@@ -71,26 +91,28 @@ contract Database
        uint numberOfTotalReceivers;
        }
 
-   //events
+  //Events fired when NewRequestIsDone & NewImageIsUploaded
    event NewRequestIsDone(string nameOfTag, uint idOfRequestedDatabase, uint perImagePrice);
    event NewImageIsUploaded(uint hashOfImageProposal, uint idOfProposedTag);
 
-   //mappings
+  //not used yet
    mapping (uint => address ) private databaseIdToOwnerOfDatabase;
 
-   //variables
+  //@param currentProposedImageIndex index pointer to current image proposal
+  //Set up arrays for requests and image proposals
    uint public currentProposedImageIndex = 0;
    RequestedDatabase[] public requests;
    ImageProposal[] public proposedImages;
 
-   // checks the balance of the smart contract
+   //Get the balance of the smart contract
    function getBalance() public view returns (uint256) {
        return address(this).balance;
    }
 
+   //Create new image Database request with the tag which describes the needed Dataset and the amlunt of pictures needed
    function createNewDatabaseRequest(string memory _name, uint _size) payable public {
 
-       // deposit payment
+       //Deposit a payment in ether which is later distributed upon completion to the uploader and voters
        uint _ETHPerImg = (10**15);
        require(msg.value == _ETHPerImg*_size);
 
@@ -109,11 +131,12 @@ contract Database
        emit NewRequestIsDone(_name, request.idOfRequestedDatabase, request.perImagePrice);
    }
 
-   // returns current tags available for uploader to perform camera action.
-   // Tag string is in same order of adding therefore ordering is important.
+   //Returns current tags which are outstanding waiting for completion 
+   //Tag string is in same order of adding therefore ordering is important.
    function getNameOfAvailableTags() public view returns(string memory currentTags, uint[] memory currentTagIds){
        uint currentLength = requests.length;
        uint reducedLength = 0;
+       
        //string memory currentTags;
        for(uint ii= 0 ; ii < currentLength; ii++){
            if(!requests[ii].completed){
@@ -147,6 +170,7 @@ contract Database
        //        }
        //    }
        //}        
+       
        ImageProposal memory proposedImage;
        proposedImage.hashOfImageProposal = _hash;
        proposedImage.tagIdOfProposal = _idOfProposedTag;
@@ -177,6 +201,7 @@ contract Database
        tagName = requests[proposedImages[currentProposedImageIndex].tagIdOfProposal].nameOfTag;
    }
 
+   //vote for an image whether the uploaded image fits to the requested tag
    function voteForImage(uint vote) public {
 
        //check whether receiverAddresses is not empty
@@ -192,46 +217,55 @@ contract Database
            }
        }
        require(existenceInReceiverSide);
+       
        //decrease the numberOfReceiversLeft
        proposedImages[currentProposedImageIndex].numberOfReceiversLeft--;
-       if(vote == 1 ){ //vote is assigned as correct
+       
+       if(vote == 1 ){ 
+           //vote is assigned as correct
            proposedImages[currentProposedImageIndex].votersForCorrect.push(msg.sender);
            proposedImages[currentProposedImageIndex].countCorrect++;
-       }else if(vote == 0){ //vote is assigned as incorrect
+       }
+       else if(vote == 0){ 
+           //vote is assigned as incorrect
            proposedImages[currentProposedImageIndex].votersForWrong.push(msg.sender);
            proposedImages[currentProposedImageIndex].countFalse++;
        }
 
+       //Threshold until uploaded image counts as correct
        uint thresholdCorrect = proposedImages[currentProposedImageIndex].numberOfTotalReceivers / 2 + 1;
        uint thresholdFalse = proposedImages[currentProposedImageIndex].numberOfTotalReceivers - thresholdCorrect + 1 ;
-       //check for the correctness of the vote
+       
+       //Check for the correctness of the vote
        if(proposedImages[currentProposedImageIndex].countCorrect >= thresholdCorrect){
            //Add the proposedImage to the database corresponds to idOfProposedTag
            addCurrentImageToDatabase();
 
-           address payable[] storage participants = proposedImages[currentProposedImageIndex].votersForCorrect;
-           //anyone who voted right + the uploader is rewarded
-           participants.push(proposedImages[currentProposedImageIndex].uploaderAdress);
+          address payable[] storage participants = proposedImages[currentProposedImageIndex].votersForCorrect;
 
-           //reward everyone in this list with a reputation token and ether.
-           for (uint i =0; i < participants.length; i++){
-               members[participants[i]].RepBalance++;
-               participants[i].transfer((10**15)/participants.length);
-           }
+          //anyone who voted right is put into a list
+          participants.push(proposedImages[currentProposedImageIndex].uploaderAdress);
 
-           //deduct one reputation token for a false answer
-           address[] memory participantsWrong = proposedImages[currentProposedImageIndex].votersForWrong;
+          //Reward everyone in this list with a reputation token and ether.
+          for (uint i =0; i < participants.length; i++){
+                  members[participants[i]].RepBalance++;
+                  participants[i].transfer((10**15)/participants.length);
+              }
 
-           for( uint i=0; i< participantsWrong.length ; i++){
-               if(members[participantsWrong[i]].RepBalance >0)
-                   members[participantsWrong[i]].RepBalance--;
-           }
+          //deduct one reputation token for a false answer
+          address[] memory participantsWrong = proposedImages[currentProposedImageIndex].votersForWrong;
 
-           //do the transaction to the vote for the correct receivers and uploader.
+          for( uint i=0; i< participantsWrong.length ; i++){
+                  if(members[participantsWrong[i]].RepBalance >0)
+                      members[participantsWrong[i]].RepBalance--;
+              }
 
+          //do the transaction to the vote for the correct receivers and uploader.
 
-           deleteCurrentProposedImage();
+          deleteCurrentProposedImage();
+       
        }else if(proposedImages[currentProposedImageIndex].countFalse >= thresholdFalse){
+           
            //Discard the proposedImage as a false data and ignore it
            deleteCurrentProposedImage();
             
@@ -255,7 +289,7 @@ contract Database
        }
    }
 
-
+   //After True voting, the image is added to the database
    function addCurrentImageToDatabase() private{
        uint tagId = proposedImages[currentProposedImageIndex].tagIdOfProposal;
        uint imgAddress = proposedImages[currentProposedImageIndex].hashOfImageProposal;  
